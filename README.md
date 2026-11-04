@@ -27,8 +27,10 @@ you choose which.
 |---|---|
 | **Desktop Left / Right** | Switch to the previous or next desktop (Space) |
 | **Play / Pause, Next, Previous** | Control whatever is playing: Music, Spotify, YouTube |
+| **Volume Up / Down, Mute Sound** | Change the volume one step, or mute it, just like the volume keys |
 | **New Note** | Open a fresh note in Notes |
 | **Open App** | Launch an app, or bring it to the front if it's already open |
+| **Run Shortcut** | Run any of your Shortcuts: turn on a Focus, start a timer, message someone, anything Shortcuts can do |
 | **Privacy Guard** | Mid-meeting and someone walks in? One tap mutes every microphone, turns your meeting camera off (Zoom, Teams, Webex, Google Meet) and hides the screen. Tap again or click to come back, with your mic restored exactly as it was |
 
 The default 2×2 layout: top-left **Desktop Left**, top-right **Desktop Right**, bottom-left
@@ -60,7 +62,11 @@ switch LidTap off and on again in the Accessibility list.
 - **Wait for the screen to settle** between taps (about half a second).
 - During calibration the meter says **Good tap**, **A little crisper** or **Gentler is fine**. Aim for green.
 - Too many misreads? Settings → Training shows how reliable each zone is; **Calibrate Again** adds taps
-  where they're needed. Settings → Detection has the minimum tap strength.
+  where they're needed.
+- **Taps refused as "Too soft"?** A screen tap moves a larger, heavier MacBook less (a 16" MacBook Pro
+  twists a half to a third as much as a 13" MacBook Air), so LidTap learns how hard taps land on *your* Mac
+  from your calibration taps. To set the limit by hand, turn off **Learn tap strength from my taps** in
+  Settings → Detection.
 
 With crisp taps on a 2×2 grid, LidTap read 95% of taps correctly in our testing. Taps it isn't sure
 about are ignored rather than guessed.

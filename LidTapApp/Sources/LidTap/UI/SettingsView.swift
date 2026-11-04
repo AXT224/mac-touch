@@ -52,6 +52,7 @@ private struct ZonesPane: View {
     @State private var selected = 0
     @State private var pendingGrid: Grid?
     @State private var choosingApp = false
+    @State private var choosingShortcut = false
 
     var body: some View {
         let current = app.action(for: selected)
@@ -71,7 +72,13 @@ private struct ZonesPane: View {
             Section("Zone \(selected + 1)") {
                 Picker("Action", selection: Binding(
                     get: { current.kind },
-                    set: { kind in kind == .openApp ? (choosingApp = true) : app.setAction(ZoneAction(kind: kind), for: selected) })) {
+                    set: { kind in
+                        switch kind {
+                        case .openApp: choosingApp = true
+                        case .runShortcut: choosingShortcut = true
+                        default: app.setAction(ZoneAction(kind: kind), for: selected)
+                        }
+                    })) {
                     ForEach(ActionKind.allCases) { kind in
                         Label(kind.title, systemImage: kind.symbol).tag(kind)
                     }
@@ -85,9 +92,17 @@ private struct ZonesPane: View {
                         }
                     }
                 }
+                if current.kind == .runShortcut {
+                    LabeledContent("Shortcut") {
+                        HStack(spacing: 8) {
+                            Text(current.shortcutName ?? "None chosen").foregroundStyle(current.shortcutName == nil ? .secondary : .primary)
+                            Button("Choose…") { choosingShortcut = true }
+                        }
+                    }
+                }
                 LabeledContent {
                     Button("Try It") { app.testAction(zone: selected) }
-                        .disabled(current.kind == .none || (current.kind == .openApp && current.appBundleID == nil))
+                        .disabled(current.kind == .none || !current.isComplete)
                 } label: {
                     Text(current.kind.detail).foregroundStyle(.secondary)
                 }
@@ -114,7 +129,9 @@ private struct ZonesPane: View {
             if let z = app.settingsFocusZone, z < app.grid.count {
                 selected = z
                 app.settingsFocusZone = nil
-                if app.action(for: z).kind != .openApp { choosingApp = true }
+                let choice = app.settingsFocusChoice ?? .openApp
+                app.settingsFocusChoice = nil
+                if app.action(for: z).kind != choice { choice == .runShortcut ? (choosingShortcut = true) : (choosingApp = true) }
             }
         }
         .onChange(of: app.grid) { selected = 0 }
@@ -132,6 +149,12 @@ private struct ZonesPane: View {
                 app.setAction(ZoneAction(kind: .openApp, appBundleID: info.bundleID, appName: info.name), for: selected)
                 choosingApp = false
             } cancel: { choosingApp = false }
+        }
+        .sheet(isPresented: $choosingShortcut) {
+            ShortcutPicker { name in
+                app.setAction(ZoneAction(kind: .runShortcut, shortcutName: name), for: selected)
+                choosingShortcut = false
+            } cancel: { choosingShortcut = false }
         }
     }
 }
@@ -195,6 +218,58 @@ struct AppPicker: View {
     }
 }
 
+struct ShortcutPicker: View {
+    let choose: (String) -> Void
+    let cancel: () -> Void
+    @State private var names: [String]?
+    @State private var query = ""
+    @State private var selection: String?
+
+    var body: some View {
+        let filtered = (names ?? []).filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+        VStack(spacing: 0) {
+            List(filtered, id: \.self, selection: $selection) { name in
+                Label(name, systemImage: ActionKind.runShortcut.symbol)
+                    .tag(name)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { choose(name) }
+            }
+            .searchable(text: $query, placement: .toolbar, prompt: "Search shortcuts")
+            .overlay {
+                if names == nil {
+                    ProgressView()
+                } else if names?.isEmpty == true {
+                    ContentUnavailableView("No Shortcuts", systemImage: ActionKind.runShortcut.symbol,
+                                           description: Text("Make one in the Shortcuts app, then choose it here."))
+                } else if filtered.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                }
+            }
+            Divider()
+            HStack {
+                Button("Open Shortcuts") { ActionRunner.openApp(bundleID: "com.apple.shortcuts", then: nil) }
+                Button("Refresh") { load() }
+                Spacer()
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                Button("Choose") { if let s = selection { choose(s) } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selection == nil)
+            }
+            .padding(12)
+        }
+        .frame(width: 420, height: 520)
+        .navigationTitle("Choose a Shortcut")
+        .task { load() }
+    }
+
+    private func load() {
+        Task.detached(priority: .userInitiated) {
+            let list = Shortcuts.list()
+            await MainActor.run { names = list }
+        }
+    }
+}
+
 // MARK: - Training
 
 private struct TrainingPane: View {
@@ -213,7 +288,7 @@ private struct TrainingPane: View {
                     VStack(alignment: .trailing, spacing: 1) {
                         Text("\(app.dataset.zoneTapCount - app.softTapCount) taps, \(app.count(for: noiseLabel)) bumps")
                         if app.softTapCount > 0 {
-                            Text(String(format: "%d softer than %.1f °/s, not used", app.softTapCount, app.config.minTapStrength))
+                            Text(String(format: "%d softer than %.1f °/s, not used", app.softTapCount, app.minTapStrength))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -426,9 +501,15 @@ private struct DetectionPane: View {
             }
 
             Section("Sensitivity") {
-                slider("Minimum tap strength", "Softer taps are not recorded or acted on. Lower it only if crisp taps are being refused", $app.config.minTapStrength, 1.5...10, 0.5) { String(format: "%.1f °/s", $0) }
+                Toggle(isOn: $app.config.autoTapStrength) {
+                    Text("Learn tap strength from my taps")
+                    Text(String(format: "Softer taps than %.1f °/s are not recorded or acted on. A screen tap moves a larger, heavier MacBook less, so LidTap sets this from your own calibration taps", app.minTapStrength))
+                }
+                if !app.config.autoTapStrength {
+                    slider("Minimum tap strength", "Lower it if crisp taps are refused as too soft", $app.config.minTapStrength, 0.5...10, 0.1) { String(format: "%.1f °/s", $0) }
+                }
                 slider("Trigger", "How far above the resting noise a tap must rise", $app.config.detector.k, 2...15, 0.5) { String(format: "%.1f× noise", $0) }
-                slider("Minimum", "Raise if bumps register as taps. Lower if gentle taps are missed", $app.config.detector.minThreshold, 0.3...20, 0.1) { String(format: "%.1f °/s", $0) }
+                slider("Minimum", "Raise if bumps register as taps. Lower if gentle taps are missed", $app.config.detector.minThreshold, 0.2...20, 0.1) { String(format: "%.1f °/s", $0) }
                 slider("Gap between taps", "Shorter allows quicker repeat taps", $app.config.detector.refractory, 0.15...1, 0.05) { String(format: "%.2f s", $0) }
                 slider("Pause after typing", "Taps this soon after a key, click or scroll are ignored", $app.config.detector.gateSeconds, 0...1, 0.05) { String(format: "%.2f s", $0) }
                 Toggle(isOn: $app.config.detector.gating) {

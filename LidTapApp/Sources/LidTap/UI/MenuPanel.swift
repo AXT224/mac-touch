@@ -217,7 +217,7 @@ struct ZoneActionMenu: View {
     var body: some View {
         let current = app.action(for: zone).kind
         Text("Zone \(zone + 1)")
-        ForEach(ActionKind.allCases.filter { $0 != .openApp }) { kind in
+        ForEach(ActionKind.allCases.filter { !$0.needsChoice }) { kind in
             Button {
                 app.setAction(ZoneAction(kind: kind), for: zone)
             } label: {
@@ -225,7 +225,8 @@ struct ZoneActionMenu: View {
             }
         }
         Divider()
-        Button("Open App…") { dismiss(); app.showSettings(pane: "zones", zone: zone) }
+        Button("Open App…") { dismiss(); app.showSettings(pane: "zones", zone: zone, choose: .openApp) }
+        Button("Run Shortcut…") { dismiss(); app.showSettings(pane: "zones", zone: zone, choose: .runShortcut) }
     }
 }
 

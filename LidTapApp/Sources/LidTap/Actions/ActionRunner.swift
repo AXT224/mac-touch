@@ -23,7 +23,8 @@ enum KeySender {
         }
     }
 
-    enum MediaKey: Int { case play = 16, next = 17, previous = 18 }
+    /// NX_KEYTYPE_* codes from IOKit's ev_keymap.h.
+    enum MediaKey: Int { case volumeUp = 0, volumeDown = 1, mute = 7, play = 16, next = 17, previous = 18 }
 
     /// Media keys are NSSystemDefined events (subtype 8) carrying NX_KEYTYPE_* in data1.
     static func media(_ key: MediaKey) {
@@ -85,6 +86,12 @@ enum ActionRunner {
             KeySender.media(.next)
         case .previousTrack:
             KeySender.media(.previous)
+        case .volumeUp:
+            KeySender.media(.volumeUp)
+        case .volumeDown:
+            KeySender.media(.volumeDown)
+        case .mute:
+            KeySender.media(.mute)
         case .newNote:
             openApp(bundleID: "com.apple.Notes") { app in
                 waitUntilFrontmost(app.bundleIdentifier) { KeySender.press(.n, flags: .maskCommand) }
@@ -92,6 +99,9 @@ enum ActionRunner {
         case .openApp:
             guard let id = action.appBundleID else { return "Choose an app for this zone in Settings." }
             openApp(bundleID: id, then: nil)
+        case .runShortcut:
+            guard let name = action.shortcutName else { return "Choose a shortcut for this zone in Settings." }
+            Shortcuts.run(name)
         case .privacyGuard:
             guardController.toggle()
         }
@@ -155,5 +165,44 @@ enum AppCatalog {
         }
         return out.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             + installed.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}
+
+/// The user's Shortcuts, through the `shortcuts` command-line tool that ships with macOS.
+enum Shortcuts {
+    static let tool = URL(fileURLWithPath: "/usr/bin/shortcuts")
+
+    /// Starts the shortcut and returns at once; failures are logged (a shortcut can run for a long time).
+    static func run(_ name: String) {
+        let p = Process()
+        p.executableURL = tool
+        p.arguments = ["run", name]
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        let err = Pipe()
+        p.standardError = err
+        p.terminationHandler = { proc in
+            guard proc.terminationStatus != 0 else { return }
+            let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            Log.action.error("Shortcut \(name, privacy: .public) failed (\(proc.terminationStatus)): \(msg, privacy: .public)")
+        }
+        do { try p.run() } catch {
+            Log.action.error("Could not run shortcut \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Names of every shortcut, in the order the Shortcuts app shows them. Blocks briefly: call off the main thread.
+    static func list() -> [String] {
+        let p = Process()
+        p.executableURL = tool
+        p.arguments = ["list"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return [] }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
     }
 }

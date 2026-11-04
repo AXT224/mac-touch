@@ -31,8 +31,9 @@ struct AppConfig: Codable, Equatable {
     var rejectFactor = 2.0
     /// Act only when the recogniser is at least this sure; otherwise say "not sure" instead of doing the wrong thing.
     var minConfidence = 0.6
-    /// Weakest tap (peak twist, deg/s) LidTap records or acts on. Softer taps sit too close to the sensor's
-    /// background motion to tell zones apart (95% accuracy at a 7 °/s median, 56% at 2.3 °/s).
+    /// Learn the weakest usable tap from this Mac's own taps (see `TapStrength`) instead of `minTapStrength`.
+    var autoTapStrength = true
+    /// Weakest tap (peak twist, deg/s) LidTap records or acts on when `autoTapStrength` is off.
     var minTapStrength = 3.5
     var modelChoice: String = "auto"  // "auto" or a ModelKind raw value
     var actions: [String: ZoneAction] = [:]
@@ -49,6 +50,7 @@ struct AppConfig: Codable, Equatable {
         detector = try c.decodeIfPresent(DetectorSettings.self, forKey: .detector) ?? d.detector
         rejectFactor = try c.decodeIfPresent(Double.self, forKey: .rejectFactor) ?? d.rejectFactor
         minConfidence = try c.decodeIfPresent(Double.self, forKey: .minConfidence) ?? d.minConfidence
+        autoTapStrength = try c.decodeIfPresent(Bool.self, forKey: .autoTapStrength) ?? d.autoTapStrength
         minTapStrength = try c.decodeIfPresent(Double.self, forKey: .minTapStrength) ?? d.minTapStrength
         modelChoice = try c.decodeIfPresent(String.self, forKey: .modelChoice) ?? d.modelChoice
         actions = try c.decodeIfPresent([String: ZoneAction].self, forKey: .actions) ?? d.actions

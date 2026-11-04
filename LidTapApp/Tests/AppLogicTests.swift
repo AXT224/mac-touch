@@ -141,17 +141,19 @@ func appLogicTests() {
         T.note(h.app.lastRecord?.detail ?? "")
     }
 
-    T.run("calibration records only clean taps (too-soft taps are asked again)") {
+    T.run("calibration counts only clean taps (too-soft taps are asked again)") {
         let h = AppHarness(name: "soft")
         h.app.startCalibration(perZone: 18, block: 1)
         let n = h.app.dataset.samples.count
         let r = h.app.replayEvent(label: h.app.calibration!.target!)!
         h.app.handle(TapEvent(id: r.id, time: r.time, date: r.date, g: r.g, a: r.a, peakG: 1.2, peakA: r.peakA, lid: r.lid,
                               threshold: 1, noise: 0.1, gated: nil))
-        T.expect(h.app.dataset.samples.count == n && h.app.calibration?.flash == .ignored("too soft"), "a 1.2 °/s calibration tap was recorded")
+        // Kept (unused) as evidence of how hard taps land on this Mac, but not counted.
+        T.expect(h.app.calibration?.position == 0 && h.app.calibration?.flash == .ignored("too soft"), "a 1.2 °/s calibration tap was counted")
+        T.expect(h.app.dataset.samples.count == n + 1 && h.app.softTapCount == 1, "soft tap not kept as unused evidence")
         h.app.handle(TapEvent(id: r.id + 1, time: r.time, date: r.date, g: r.g, a: r.a, peakG: 4, peakA: r.peakA, lid: r.lid,
                               threshold: 1, noise: 0.1, gated: nil))
-        T.expect(h.app.dataset.samples.count == n + 1, "a crisp calibration tap was not recorded")
+        T.expect(h.app.calibration?.position == 1 && h.app.dataset.samples.count == n + 2, "a crisp calibration tap was not counted")
         h.app.endCalibration()
     }
 
@@ -202,8 +204,91 @@ func appLogicTests() {
         h.app.handle(TapEvent(id: r.id, time: r.time, date: r.date, g: r.g, a: r.a, peakG: 2.0, peakA: r.peakA, lid: r.lid,
                               threshold: 1, noise: 0.1, gated: nil))
         T.expect(h.performed.isEmpty && h.app.lastRecord?.outcome == .rejected, "a 2 °/s live tap acted")
+        T.expect(h.app.minTapStrength == TapStrength.ceiling, "learned limit \(h.app.minTapStrength) on a Mac whose taps are 7 °/s")
+        h.app.config.autoTapStrength = false
         h.app.config.minTapStrength = 1.0
         T.expect(T.wait(10) { h.app.report?.sampleCount == 72 && !h.app.isTraining }, "lowering the minimum did not retrain with all taps")
+    }
+
+    T.run("tap strength limit: learned from this Mac's taps, between 1 and 3.5 °/s") {
+        T.expect(TapStrength.learned(from: []) == 1.0, "no taps yet")
+        T.expect(TapStrength.learned(from: [7, 6, 8, 9, 5]) == 3.5, "13-inch Air taps keep the 3.5 °/s limit")
+        T.expect(abs(TapStrength.learned(from: [2.4, 1.8, 2.1, 2.0, 1.6, 2.6]) - 2.05 * 2 / 3) < 1e-9, "16-inch taps \(TapStrength.learned(from: [2.4, 1.8, 2.1, 2.0, 1.6, 2.6]))")
+        T.expect(TapStrength.learned(from: [1.1, 1.2, 1.0]) == 1.0, "never below 1 °/s")
+    }
+
+    T.run("16-inch MacBook Pro: weak screen taps calibrate, train and act") {
+        // The same taps, as a heavier Mac feels them: a quarter of the twist (median 1.8 °/s instead of 7).
+        var ds = T.loadDataset()
+        for i in ds.samples.indices where ds.samples[i].label != noiseLabel {
+            ds.samples[i].peakG *= 0.25
+            ds.samples[i].g = ds.samples[i].g.map { $0.map { $0 * 0.25 } }
+        }
+        let h = AppHarness(name: "big-mac", dataset: ds)
+        T.expect(h.app.minTapStrength < 1.4 && h.app.softTapCount < 10, "limit \(h.app.minTapStrength), \(h.app.softTapCount) taps refused")
+        guard h.train() else { return T.fail("no model") }
+        T.note("accuracy with quarter-strength taps \(Int((h.app.accuracy ?? 0) * 100))%")
+        T.expect((h.app.accuracy ?? 0) >= 0.8, "accuracy \(h.app.accuracy ?? 0)")
+        h.performed.removeAll()
+        for _ in 0..<5 { h.tap("z1") }
+        T.expect(h.performed.count >= 4, "only \(h.performed.count)/5 weak live taps acted")
+
+        // A new calibration on this Mac counts its 1.8 °/s taps instead of calling them too soft.
+        h.app.startCalibration(perZone: 20, block: 1)
+        let before = h.app.calibration!.position
+        for _ in 0..<3 { h.tap(h.app.calibration!.target!) }
+        T.expect(h.app.calibration!.position >= before + 2, "calibration refused weak taps: position \(h.app.calibration!.position)")
+        h.app.endCalibration()
+
+        // The hand-set limit still wins when automatic is off.
+        h.app.config.autoTapStrength = false
+        h.app.config.minTapStrength = 3.5
+        h.performed.removeAll()
+        h.tap("z1")
+        T.expect(h.performed.isEmpty && h.app.lastRecord?.outcome == .rejected, "hand-set 3.5 °/s limit ignored")
+    }
+
+    T.run("first calibration on a weak-tap Mac: soft taps are kept and the limit settles") {
+        let h = AppHarness(name: "first-cal", dataset: nil)
+        h.app.startCalibration(perZone: 10, block: 1)
+        let template = T.loadDataset().samples.first { $0.label == "z0" }!
+        var id = 5000
+        @MainActor func tap(_ strength: Double) {
+            id += 1
+            h.app.handle(TapEvent(id: id, time: MachClock.now(), date: Date(), g: template.g, a: template.a, peakG: strength,
+                                  peakA: template.peakA, lid: template.lid, threshold: 1, noise: 0.1, gated: nil))
+        }
+        for x in [2.0, 2.2, 1.9, 2.1, 2.0, 2.3] { tap(x) }
+        T.expect(h.app.calibration?.position == 6, "weak but steady taps refused: position \(h.app.calibration?.position ?? -1)")
+        tap(1.0)  // a fumbled tap, far softer than this Mac's usual
+        T.expect(h.app.calibration?.position == 6 && h.app.dataset.samples.count == 7, "fumble counted, or not kept as evidence")
+        T.expect(h.app.softTapCount == 1, "soft count \(h.app.softTapCount)")
+        h.app.undoLastCalibrationTap()  // removes the last counted tap, not the fumble
+        T.expect(h.app.calibration?.position == 5 && h.app.dataset.samples.contains { $0.peakG == 1.0 } && h.app.dataset.samples.count == 6,
+                 "undo removed the wrong sample")
+        h.app.endCalibration()
+    }
+
+    T.run("volume, mute and shortcut actions") {
+        for k in [ActionKind.volumeUp, .volumeDown, .mute] {
+            T.expect(k.group == "Sound" && k.needsAccessibility && k.hasSystemFeedback && !k.needsChoice, "\(k) metadata")
+        }
+        T.expect(ActionKind.runShortcut.needsChoice && !ActionKind.runShortcut.needsAccessibility, "shortcut metadata")
+        let sc = ZoneAction(kind: .runShortcut, shortcutName: "Stop Distractions")
+        T.expect(sc.title == "Stop Distractions" && sc.isComplete && !ZoneAction(kind: .runShortcut).isComplete, "shortcut title or completeness")
+        let data = try! JSONEncoder().encode(["z0": sc, "z1": ZoneAction(kind: .volumeUp)])
+        let back = try! JSONDecoder().decode([String: ZoneAction].self, from: data)
+        T.expect(back["z0"] == sc && back["z1"]?.kind == .volumeUp, "round trip \(back)")
+        let old = try! JSONDecoder().decode(ZoneAction.self, from: Data(#"{"kind":"openApp","appBundleID":"com.apple.calculator"}"#.utf8))
+        T.expect(old.shortcutName == nil && old.isComplete, "older zone action did not load")
+
+        let h = AppHarness(name: "new-actions")
+        guard h.train() else { return T.fail("no model") }
+        h.app.setAction(ZoneAction(kind: .volumeDown), for: 1)
+        h.performed.removeAll()
+        h.tap("z1")
+        T.expect(h.performed.last?.kind == .volumeDown, "zone 2 did not turn the volume down: \(h.performed)")
+        T.expect(!Shortcuts.list().isEmpty || !FileManager.default.fileExists(atPath: Shortcuts.tool.path), "shortcuts list empty")
     }
 
     T.run("strength coaching: calibration meter sees every tap, recorded or not") {

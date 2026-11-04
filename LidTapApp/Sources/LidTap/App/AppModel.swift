@@ -44,6 +44,8 @@ struct CalibrationState: Equatable {
     /// Strength of the most recent tap during calibration (deg/s), for the coaching meter.
     var lastStrength: Double?
     var strengthID = 0
+    /// Samples this calibration counted toward the sequence, newest last (Undo removes these).
+    var recordedIDs: [Int] = []
 
     var target: String? { phase == .taps && position < sequence.count ? sequence[position] : nil }
     var remainingInBlock: Int {
@@ -66,7 +68,7 @@ final class AppModel {
             privacyGuard.muteMic = config.guardMutesMic
             privacyGuard.stopCamera = config.guardStopsCamera
             if config.modelChoice != oldValue.modelChoice || config.rejectFactor != oldValue.rejectFactor { refitActiveModel() }
-            if config.minTapStrength != oldValue.minTapStrength { scheduleRetrain() }
+            if config.minTapStrength != oldValue.minTapStrength || config.autoTapStrength != oldValue.autoTapStrength { scheduleRetrain() }
         }
     }
 
@@ -82,6 +84,8 @@ final class AppModel {
     private(set) var ripple: (zone: Int, id: Int)?
     /// Zone the Settings window should select when it opens (set from the menu panel's context menu).
     var settingsFocusZone: Int?
+    /// What the Settings window should offer to choose for that zone (an app or a shortcut).
+    var settingsFocusChoice: ActionKind?
     var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
 
     let privacyGuard: PrivacyGuard
@@ -215,9 +219,9 @@ final class AppModel {
                         peakG: s.peakG, peakA: s.peakA, lid: s.lid, threshold: 1, noise: 0.1, gated: gated)
     }
 
-    func showSettings(pane: String? = nil, zone: Int? = nil) {
+    func showSettings(pane: String? = nil, zone: Int? = nil, choose: ActionKind? = nil) {
         if let pane { UserDefaults.standard.set(pane, forKey: "settingsPane") }
-        if let zone { settingsFocusZone = zone }
+        if let zone { settingsFocusZone = zone; settingsFocusChoice = choose }
         SettingsWindow.shared.show()
     }
 
@@ -250,14 +254,17 @@ final class AppModel {
                 guard let label = cal.target else { return }
                 cal.lastStrength = event.peakG
                 cal.strengthID += 1
-                // Record only crisp taps: a soft tap barely above the sensor's background motion teaches the wrong thing.
-                if event.peakG < config.minTapStrength {
+                // Count only crisp taps: a soft tap barely above the sensor's background motion teaches the wrong
+                // thing. It is still kept (unused) as evidence of how hard taps land on this Mac.
+                let limit = config.autoTapStrength ? TapStrength.learned(from: zoneStrengths + [event.peakG]) : config.minTapStrength
+                let id = addSample(event, label: label)
+                if event.peakG < limit {
                     calibration = cal
-                    record(.ignored, nil, nil, String(format: "Too soft (%.1f °/s)", event.peakG))
+                    record(.ignored, nil, nil, String(format: "Too soft (%.1f °/s, this Mac needs %.1f)", event.peakG, limit))
                     flash(.ignored("too soft"))
                     return
                 }
-                addSample(event, label: label)
+                cal.recordedIDs.append(id)
                 cal.position += 1
                 if cal.position >= cal.sequence.count { cal.phase = .noisePrompt }
                 calibration = cal
@@ -275,7 +282,7 @@ final class AppModel {
         }
 
         guard config.enabled else { return }
-        if event.peakG < config.minTapStrength {
+        if event.peakG < minTapStrength {
             record(.rejected, nil, nil, String(format: "Too soft (%.1f °/s). Tap a little crisper", event.peakG))
             return
         }
@@ -310,7 +317,7 @@ final class AppModel {
         if presentsUI && config.showTapFeedback && action.kind != .privacyGuard {
             TapFeedback.shared.show(zone: zoneIndex(p.label), grid: grid, action: action)
         }
-        if presentsUI && config.playSounds && action.kind != .none && error == nil { NSSound(named: "Pop")?.play() }
+        if presentsUI && config.playSounds && action.kind != .none && !action.kind.hasSystemFeedback && error == nil { NSSound(named: "Pop")?.play() }
     }
 
     /// Should input around this tap disqualify it? Typing and clicking shake the laptop like a tap, and macOS
@@ -357,7 +364,8 @@ final class AppModel {
         calibration = cal
     }
 
-    private func addSample(_ event: TapEvent, label: String) {
+    @discardableResult
+    private func addSample(_ event: TapEvent, label: String) -> Int {
         let s = TapSample(id: nextSampleID, label: label, wall: event.date.timeIntervalSince1970, lid: event.lid,
                           peakG: event.peakG, peakA: event.peakA,
                           g: event.g.map { $0.map { ($0 * 1000).rounded() / 1000 } },
@@ -366,6 +374,7 @@ final class AppModel {
         features[s.id] = Features.extract(g: s.g, a: s.a)
         dataset.samples.append(s)
         scheduleSave()
+        return s.id
     }
 
     private func scheduleSave() {
@@ -411,9 +420,8 @@ final class AppModel {
     }
 
     func undoLastCalibrationTap() {
-        guard var cal = calibration, cal.phase == .taps, cal.position > 0,
-              let last = dataset.samples.lastIndex(where: { $0.label == cal.sequence[cal.position - 1] }) else { return }
-        dataset.samples.remove(at: last)
+        guard var cal = calibration, cal.phase == .taps, cal.position > 0, let id = cal.recordedIDs.popLast() else { return }
+        dataset.samples.removeAll { $0.id == id }
         cal.position -= 1
         calibration = cal
         scheduleSave()
@@ -465,10 +473,23 @@ final class AppModel {
 
     func count(for label: String) -> Int { dataset.count(label) }
 
+    /// The weakest tap LidTap records or acts on: learned from this Mac's taps (`TapStrength`), or set by hand.
+    var minTapStrength: Double { config.autoTapStrength ? TapStrength.learned(from: zoneStrengths) : config.minTapStrength }
+    private var zoneStrengths: [Double] { dataset.samples.compactMap { $0.label == noiseLabel ? nil : $0.peakG } }
+
     /// Recorded taps strong enough to learn from (bumps always count: they teach what isn't a tap).
-    func isUsable(_ s: TapSample) -> Bool { s.label == noiseLabel || s.peakG >= config.minTapStrength }
-    func usableCount(for label: String) -> Int { dataset.samples.reduce(0) { $0 + ($1.label == label && isUsable($1) ? 1 : 0) } }
-    var softTapCount: Int { dataset.samples.filter { !isUsable($0) }.count }
+    private func usable() -> (TapSample) -> Bool {
+        let limit = minTapStrength
+        return { $0.label == noiseLabel || $0.peakG >= limit }
+    }
+    func usableCount(for label: String) -> Int {
+        let ok = usable()
+        return dataset.samples.reduce(0) { $0 + ($1.label == label && ok($1) ? 1 : 0) }
+    }
+    var softTapCount: Int {
+        let ok = usable()
+        return dataset.samples.reduce(0) { $0 + (ok($1) ? 0 : 1) }
+    }
 
     @ObservationIgnored private var retrainTask: Task<Void, Never>?
     private func scheduleRetrain() {
@@ -482,7 +503,7 @@ final class AppModel {
     // MARK: Training
 
     func retrain(completion: (() -> Void)? = nil) {
-        let samples = dataset.samples.filter(isUsable)
+        let samples = dataset.samples.filter(usable())
         let X = samples.map { features[$0.id] ?? Features.extract(g: $0.g, a: $0.a) }
         let labels = samples.map(\.label)
         let grid = dataset.grid
@@ -518,7 +539,7 @@ final class AppModel {
         guard let report else { return }
         let kind = ModelKind(rawValue: config.modelChoice) ?? report.best
         guard kind != activeKind || model == nil else { return }
-        let samples = dataset.samples.filter(isUsable)
+        let samples = dataset.samples.filter(usable())
         let X = samples.map { features[$0.id] ?? Features.extract(g: $0.g, a: $0.a) }
         let labels = samples.map(\.label)
         Task.detached(priority: .userInitiated) {

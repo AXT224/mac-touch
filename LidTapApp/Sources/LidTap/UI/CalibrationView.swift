@@ -138,7 +138,7 @@ private struct TapStage: View {
                 .contentTransition(.numericText())
                 .animation(DS.Motion.feedback, value: cal.position)
             Divider().frame(height: 24)
-            StrengthMeter(strength: cal.lastStrength, minimum: app.config.minTapStrength, id: cal.strengthID)
+            StrengthMeter(strength: cal.lastStrength, minimum: app.minTapStrength, id: cal.strengthID)
             Divider().frame(height: 24)
             Button { app.undoLastCalibrationTap() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                 .disabled(cal.position == 0)

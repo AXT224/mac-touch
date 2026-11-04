@@ -15,7 +15,8 @@ Command Line Tools 26.1 install (a stray `module.modulemap`) with a VFS overlay;
 
 ## Zone actions
 
-Desktop Left / Right · New Note · Play/Pause · Next / Previous Track · Open App (launch or bring to front) ·
+Desktop Left / Right · New Note · Play/Pause · Next / Previous Track · Volume Up / Down · Mute Sound ·
+Open App (launch or bring to front) · Run Shortcut ·
 Privacy Guard.
 
 **Privacy Guard** blurs every screen instantly, mutes every microphone at the system level (restored
