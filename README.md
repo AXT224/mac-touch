@@ -114,6 +114,12 @@ LidTapApp/scripts/build.sh
 It compiles with `swiftc`, assembles `LidTapApp/build/LidTap.app`, signs it ad hoc and installs it to
 `~/Applications`. `--no-install` skips the install.
 
+**Make a release** signed with a Developer ID and notarized by Apple (the setup steps are at the top of the script):
+
+```bash
+LidTapApp/scripts/release.sh
+```
+
 **Run the tests:**
 
 ```bash
