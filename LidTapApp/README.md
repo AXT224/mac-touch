@@ -41,6 +41,7 @@ The build is ad-hoc signed, so after each rebuild macOS may need Accessibility s
 | `Sources/LidTap/Core/Features.swift` | 70 tap features, identical to the Python prototype |
 | `Sources/LidTap/Core/Classifiers.swift`, `ZoneModel.swift` | Logistic regression, kNN, nearest centroid; cross-validation; open-set rejection |
 | `Sources/LidTap/Core/Store.swift` | Config and dataset in `~/Library/Application Support/LidTap` |
+| `Sources/LidTap/Core/Updater.swift` | Self-update from GitHub releases: check, download, Developer ID signature check, swap and relaunch |
 | `Sources/LidTap/Actions/` | Zone actions, key/media events, Privacy Guard, meeting camera control |
-| `Sources/LidTap/UI/` | Menu bar panel, Settings, full-screen calibration, on-screen tap feedback |
+| `Sources/LidTap/UI/` | Menu bar panel, Settings, Software Update window, full-screen calibration, on-screen tap feedback |
 | `Sources/LidTap/App/` | App entry, central model |

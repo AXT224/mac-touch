@@ -41,6 +41,8 @@ struct AppConfig: Codable, Equatable {
     var playSounds = true
     var guardMutesMic = true
     var guardStopsCamera = true
+    /// Ask GitHub about once a day whether a newer LidTap is out (installing always needs the user's OK).
+    var checkForUpdates = true
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -58,6 +60,7 @@ struct AppConfig: Codable, Equatable {
         playSounds = try c.decodeIfPresent(Bool.self, forKey: .playSounds) ?? d.playSounds
         guardMutesMic = try c.decodeIfPresent(Bool.self, forKey: .guardMutesMic) ?? d.guardMutesMic
         guardStopsCamera = try c.decodeIfPresent(Bool.self, forKey: .guardStopsCamera) ?? d.guardStopsCamera
+        checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
     }
 }
 

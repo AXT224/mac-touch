@@ -7,7 +7,8 @@ in a meeting.
 It works by listening to the motion sensor inside your MacBook. A tap on the lid twists the laptop
 slightly about its hinge; the sensor feels that twist about 800 times a second, and a small model
 trained on *your* taps works out which part of the screen you tapped. Everything runs on your Mac:
-no network access, no account, nothing leaves the machine.
+no account, and your taps and settings never leave the machine. The only time LidTap goes online is to ask
+GitHub whether a newer version is out (you can turn that off).
 
 Made by [Yemcube (@yem.cube)](https://www.instagram.com/yem.cube).
 
@@ -51,8 +52,11 @@ lid, and knocks on the desk.
 5. Click **Calibrate**. Tap the dot in each highlighted zone a few times (about two minutes), then let it
    record 20 seconds of everyday bumps: typing, clicking, nudging the laptop. That's it.
 
-**Updating:** replace the app in Applications. Your calibration and settings are kept. Coming from 1.0 or
-an unsigned build? Switch LidTap off and on again in the Accessibility list, once.
+**Updating:** from 1.0.2 on, LidTap updates itself. About once a day it checks GitHub for a new release and
+asks before installing it; or choose **Check for Updates…** in its menu. It installs an update only if it's
+signed by LidTap's developer, and keeps your calibration and settings. Turn off the daily check in Settings →
+General. On 1.0.1 or earlier, download the new version once and replace the app in Applications. Coming from
+1.0 or an unsigned build? Switch LidTap off and on again in the Accessibility list, once.
 
 ## Getting good taps
 
@@ -118,6 +122,11 @@ installs it to `~/Applications`. `--no-install` skips the install.
 ```bash
 LidTapApp/scripts/release.sh
 ```
+
+Bump `CFBundleShortVersionString` in `LidTapApp/Resources/Info.plist` first, then publish a GitHub release tagged
+`v<version>` with `LidTap-macOS.zip` attached. Installed copies find it through GitHub's latest-release API
+(drafts and pre-releases are ignored), show its notes, and install it only if it's newer and signed with the
+same Developer ID (Team `23R7L2SQ34`).
 
 **Run the tests:**
 

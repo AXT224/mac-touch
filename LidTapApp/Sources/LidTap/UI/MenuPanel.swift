@@ -43,6 +43,7 @@ struct MenuPanel: View {
                 MenuRow(title: app.isTrained ? "Calibrate Again…" : "Calibrate…", symbol: "scope") { dismiss(); app.startCalibration() }
                 MenuRow(title: "Settings…", symbol: "gearshape", shortcut: "⌘,") { dismiss(); app.showSettings() }
                     .keyboardShortcut(",", modifiers: .command)
+                MenuRow(title: "Check for Updates…", symbol: "arrow.down.circle") { dismiss(); app.checkForUpdates() }
                 MenuRow(title: "Quit LidTap", symbol: "power", shortcut: "⌘Q") { NSApp.terminate(nil) }
                     .keyboardShortcut("q", modifiers: .command)
             }
@@ -94,6 +95,10 @@ struct MenuPanel: View {
         if !app.status.accessibility {
             return Notice(symbol: "hand.raised.fill", text: "To switch desktops and control music, allow LidTap in Accessibility.",
                           button: "Allow…", action: { Permissions.requestAccessibility(); Permissions.openPrivacyPane("Privacy_Accessibility") })
+        }
+        if let update = app.updater.available, app.updater.state == .available {
+            return Notice(symbol: "arrow.down.circle.fill", text: "LidTap \(update.version.description) is available.",
+                          button: "Update…", action: { dismiss(); app.showUpdate() })
         }
         return nil
     }

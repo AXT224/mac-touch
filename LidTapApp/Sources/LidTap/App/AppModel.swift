@@ -69,6 +69,9 @@ final class AppModel {
             privacyGuard.stopCamera = config.guardStopsCamera
             if config.modelChoice != oldValue.modelChoice || config.rejectFactor != oldValue.rejectFactor { refitActiveModel() }
             if config.minTapStrength != oldValue.minTapStrength || config.autoTapStrength != oldValue.autoTapStrength { scheduleRetrain() }
+            if config.checkForUpdates != oldValue.checkForUpdates, automaticUpdatesAllowed {
+                config.checkForUpdates ? updater.startAutomaticChecks() : updater.stopAutomaticChecks()
+            }
         }
     }
 
@@ -106,6 +109,8 @@ final class AppModel {
     @ObservationIgnored private var trainGeneration = 0
     @ObservationIgnored private var heartbeat = 0
     @ObservationIgnored private var testHookObserver: NSObjectProtocol?
+    /// Finds and installs newer releases from GitHub.
+    @ObservationIgnored let updater = Updater()
 
     var grid: Grid { dataset.grid }
     var isTrained: Bool { model != nil }
@@ -131,6 +136,7 @@ final class AppModel {
         privacyGuard.muteMic = config.guardMutesMic
         privacyGuard.stopCamera = config.guardStopsCamera
         performAction = { [unowned self] action in ActionRunner.perform(action, guardController: privacyGuard) }
+        updater.onFound = { [weak self] _, userAsked in self?.offerUpdate(userAsked: userAsked) }
     }
 
     func start() {
@@ -147,12 +153,38 @@ final class AppModel {
             MainActor.assumeIsolated { self?.refreshStatus() }
         }
         if Set(dataset.samples.map(\.label)).count >= 2 { retrain() }
+        if config.checkForUpdates, automaticUpdatesAllowed { updater.startAutomaticChecks() }
         // Any process can post distributed notifications, so the hooks only ever run against a separate test data
         // directory, never your real calibration and settings.
         if CommandLine.arguments.contains("--test-hooks") {
             if ProcessInfo.processInfo.environment["LIDTAP_DATA_DIR"] != nil { installTestHooks() }
             else { Log.app.error("--test-hooks ignored: it needs LIDTAP_DATA_DIR (a test data directory)") }
         }
+    }
+
+    // MARK: Updates
+
+    /// Not in tests, and not for a copy running on a test data folder.
+    private var automaticUpdatesAllowed: Bool {
+        presentsUI && ProcessInfo.processInfo.environment["LIDTAP_DATA_DIR"] == nil
+    }
+
+    /// Opens Software Update and checks GitHub now.
+    func checkForUpdates() {
+        guard presentsUI else { return }
+        UpdateWindow.shared.show(updater)
+        Task { await updater.check(userInitiated: true) }
+    }
+
+    func showUpdate() {
+        guard presentsUI else { return }
+        UpdateWindow.shared.show(updater)
+    }
+
+    /// A newer release was found. An automatic check doesn't pop up mid-meeting or mid-calibration: the menu shows it instead.
+    private func offerUpdate(userAsked: Bool) {
+        guard presentsUI else { return }
+        if userAsked || (!privacyGuard.isActive && calibration == nil) { UpdateWindow.shared.show(updater) }
     }
 
     private func refreshStatus() {

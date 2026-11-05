@@ -27,7 +27,7 @@ echo "Compiling…"
 set --
 for f in $(cd Sources && find . -name '*.swift'); do set -- "$@" "Sources/$f"; done
 swiftc_ -O -swift-version 5 -parse-as-library \
-  -framework IOKit -framework CoreAudio -framework CoreMediaIO -framework ServiceManagement \
+  -framework IOKit -framework CoreAudio -framework CoreMediaIO -framework ServiceManagement -framework Security \
   "$@" -o "$BUILD/LidTap"
 
 echo "Bundling…"

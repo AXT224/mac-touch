@@ -625,6 +625,22 @@ private struct GeneralPane: View {
                 Text("Feedback")
             }
             Section {
+                LabeledContent("Version") {
+                    HStack(spacing: 10) {
+                        Text(app.updater.current.description).monospacedDigit()
+                        Button(app.updater.available != nil ? "Update…" : "Check Now") {
+                            app.updater.available != nil ? app.showUpdate() : app.checkForUpdates()
+                        }
+                    }
+                }
+                Toggle(isOn: $app.config.checkForUpdates) {
+                    Text("Check for updates automatically")
+                    Text("About once a day LidTap asks GitHub for its latest release. Nothing is installed until you confirm, and only an update signed by LidTap's developer.")
+                }
+            } header: {
+                Text("Updates")
+            }
+            Section {
                 LabeledContent("Data") {
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.dataDirectory]) }
                 }
