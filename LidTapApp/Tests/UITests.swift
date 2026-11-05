@@ -31,10 +31,10 @@ func uiTests() {
         }
     }
 
-    shot("menu panel trained", CGSize(width: 320, height: 560), MenuPanel().environment(h.app))
-    shot("menu panel light mode", CGSize(width: 320, height: 560), dark: false, MenuPanel().environment(h.app))
+    shot("menu panel trained", CGSize(width: 300, height: 400), MenuPanel().environment(h.app))
+    shot("menu panel light mode", CGSize(width: 300, height: 400), dark: false, MenuPanel().environment(h.app))
     let fresh = AppHarness(name: "ui-untrained", dataset: nil)
-    shot("menu panel untrained", CGSize(width: 320, height: 560), MenuPanel().environment(fresh.app))
+    shot("menu panel untrained", CGSize(width: 300, height: 400), MenuPanel().environment(fresh.app))
 
     for pane in SettingsPane.allCases {
         UserDefaults.standard.set(pane.rawValue, forKey: "settingsPane")

@@ -9,7 +9,8 @@ final class AppHarness {
 
     init(name: String, dataset: Dataset? = T.loadDataset(), config: AppConfig? = nil) {
         dir = T.tempDir(name)
-        let store = Store(directory: dir)
+        var store = Store(directory: dir)
+        store.usesTrash = false
         if let dataset { store.save(dataset) }
         if let config { store.save(config) }
         app = AppModel(store: store, presentsUI: false)

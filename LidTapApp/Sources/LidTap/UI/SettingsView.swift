@@ -2,12 +2,15 @@ import Charts
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case zones, training, detection, permissions, general
+    case zones, profiles, training, detection, permissions, general
     var id: String { rawValue }
+    /// Panes showing the active profile's settings.
+    var isPerProfile: Bool { self == .zones || self == .training || self == .detection }
     var title: String { rawValue.capitalized }
     var symbol: String {
         switch self {
         case .zones: "rectangle.split.2x2"
+        case .profiles: "rectangle.stack"
         case .training: "chart.bar.xaxis"
         case .detection: "waveform.path.ecg"
         case .permissions: "lock.shield"
@@ -17,6 +20,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    @Environment(AppModel.self) private var app
     @AppStorage("settingsPane") private var storedPane = SettingsPane.zones.rawValue
 
     private var pane: Binding<SettingsPane?> {
@@ -33,6 +37,7 @@ struct SettingsView: View {
             Group {
                 switch pane.wrappedValue ?? .zones {
                 case .zones: ZonesPane()
+                case .profiles: ProfilesPane()
                 case .training: TrainingPane()
                 case .detection: DetectionPane()
                 case .permissions: PermissionsPane()
@@ -41,6 +46,11 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
             .navigationTitle((pane.wrappedValue ?? .zones).title)
+            .toolbar {
+                if app.config.hasProfiles && (pane.wrappedValue ?? .zones).isPerProfile {
+                    ToolbarItem(placement: .primaryAction) { ProfilePicker() }
+                }
+            }
         }
     }
 }

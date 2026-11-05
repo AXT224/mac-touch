@@ -2,7 +2,7 @@ import Foundation
 
 /// Updater: version parsing, GitHub's release JSON, the signature gate, download-and-verify, and the swap.
 /// No network: the feed and the download are local files. The signature tests use the Developer ID–signed
-/// LidTap in ~/Applications when it's there.
+/// LidTap in /Applications or ~/Applications when it's there.
 @MainActor
 func updaterTests() {
     T.suite = "Updater"
@@ -166,14 +166,15 @@ func updaterTests() {
     }
 
     // The signature gate, against the real Developer ID build.
-    let installed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/LidTap.app")
+    let candidates = [URL(fileURLWithPath: "/Applications/LidTap.app"),
+                      FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/LidTap.app")]
     let signed: URL? = {
-        guard (try? UpdateInstaller.verify(installed)) != nil else { return nil }
+        guard let installed = candidates.first(where: { (try? UpdateInstaller.verify($0)) != nil }) else { return nil }
         let copy = T.tempDir("signed").appendingPathComponent("LidTap.app")
         return shell(["/usr/bin/ditto", installed.path, copy.path]) == 0 ? copy : nil
     }()
     func needSigned() throws -> URL {
-        guard let signed else { throw T.Skip(reason: "no Developer ID–signed LidTap in ~/Applications") }
+        guard let signed else { throw T.Skip(reason: "no Developer ID–signed LidTap in /Applications or ~/Applications") }
         return signed
     }
     func zipped(_ app: URL, _ name: String) -> URL {

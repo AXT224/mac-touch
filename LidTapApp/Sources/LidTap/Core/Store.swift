@@ -43,6 +43,9 @@ struct AppConfig: Codable, Equatable {
     var guardStopsCamera = true
     /// Ask GitHub about once a day whether a newer LidTap is out (installing always needs the user's OK).
     var checkForUpdates = true
+    /// Places with their own calibration, sensitivity and zone actions (empty until the user adds one).
+    var profiles: [Profile] = []
+    var activeProfileID = Profile.defaultID
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -61,12 +64,21 @@ struct AppConfig: Codable, Equatable {
         guardMutesMic = try c.decodeIfPresent(Bool.self, forKey: .guardMutesMic) ?? d.guardMutesMic
         guardStopsCamera = try c.decodeIfPresent(Bool.self, forKey: .guardStopsCamera) ?? d.guardStopsCamera
         checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
+        profiles = try c.decodeIfPresent([Profile].self, forKey: .profiles) ?? d.profiles
+        var seen = Set<String>()
+        profiles = profiles.filter { Profile.isValidID($0.id) && seen.insert($0.id).inserted }
+        activeProfileID = try c.decodeIfPresent(String.self, forKey: .activeProfileID) ?? d.activeProfileID
+        // A hand-edited or half-written file can't leave LidTap on a profile that doesn't exist.
+        if !profiles.isEmpty && !profiles.contains(where: { $0.id == activeProfileID }) { activeProfileID = profiles[0].id }
+        if !Profile.isValidID(activeProfileID) { activeProfileID = Profile.defaultID }
     }
 }
 
 /// Files in ~/Library/Application Support/LidTap (or `LIDTAP_DATA_DIR`, or an explicit directory for tests).
 struct Store {
     let directory: URL
+    /// Deleted profiles' taps go to the Trash; tests turn this off so their temporary files don't land there.
+    var usesTrash = true
 
     init(directory: URL? = nil) {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -78,6 +90,13 @@ struct Store {
 
     var configURL: URL { directory.appendingPathComponent("config.json") }
     var datasetURL: URL { directory.appendingPathComponent("dataset.json") }
+    var profilesDirectory: URL { directory.appendingPathComponent("profiles", isDirectory: true) }
+
+    /// The default profile's taps stay in dataset.json; each added profile has profiles/<id>.json.
+    func datasetURL(profile id: String) -> URL {
+        guard id != Profile.defaultID, Profile.isValidID(id) else { return datasetURL }
+        return profilesDirectory.appendingPathComponent("\(id).json")
+    }
     var statusURL: URL { directory.appendingPathComponent("status.json") }
     /// Microphone settings saved while Privacy Guard has them muted (removed once restored).
     var micRecoveryURL: URL { directory.appendingPathComponent("mic-restore.json") }
@@ -102,13 +121,27 @@ struct Store {
         if let data = try? enc.encode(config) { try? data.write(to: configURL, options: .atomic) }
     }
 
-    func loadDataset() -> Dataset {
-        guard let data = try? Data(contentsOf: datasetURL) else { return Dataset() }
-        guard let ds = try? JSONDecoder().decode(Dataset.self, from: data) else { quarantine(datasetURL); return Dataset() }
+    func loadDataset(profile id: String = Profile.defaultID) -> Dataset {
+        let url = datasetURL(profile: id)
+        guard let data = try? Data(contentsOf: url) else { return Dataset() }
+        guard let ds = try? JSONDecoder().decode(Dataset.self, from: data) else { quarantine(url); return Dataset() }
         return ds
     }
 
-    func save(_ dataset: Dataset) {
-        if let data = try? JSONEncoder().encode(dataset) { try? data.write(to: datasetURL, options: .atomic) }
+    func save(_ dataset: Dataset, profile id: String = Profile.defaultID) {
+        let url = datasetURL(profile: id)
+        if id != Profile.defaultID { try? FileManager.default.createDirectory(at: profilesDirectory, withIntermediateDirectories: true) }
+        if let data = try? JSONEncoder().encode(dataset) { try? data.write(to: url, options: .atomic) }
+    }
+
+    /// Moves a deleted profile's taps to the Trash (recoverable), never erasing them outright.
+    func trashDataset(profile id: String) {
+        let url = datasetURL(profile: id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            if usesTrash { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+            else { try FileManager.default.removeItem(at: url) }
+        }
+        catch { Log.app.error("Couldn't move \(url.lastPathComponent, privacy: .public) to the Trash: \(error.localizedDescription, privacy: .public)") }
     }
 }

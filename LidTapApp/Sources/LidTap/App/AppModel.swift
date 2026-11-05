@@ -63,12 +63,20 @@ final class AppModel {
     var config: AppConfig {
         didSet {
             guard config != oldValue else { return }
+            // Keep the active profile's saved copy in step with the live settings.
+            if config.activeProfileID == oldValue.activeProfileID, let i = config.activeProfileIndex,
+               config.profiles[i].settings != config.profileSettings {
+                config.profiles[i].settings = config.profileSettings
+            }
             store.save(config)
             detector.settings = config.detector
             privacyGuard.muteMic = config.guardMutesMic
             privacyGuard.stopCamera = config.guardStopsCamera
-            if config.modelChoice != oldValue.modelChoice || config.rejectFactor != oldValue.rejectFactor { refitActiveModel() }
-            if config.minTapStrength != oldValue.minTapStrength || config.autoTapStrength != oldValue.autoTapStrength { scheduleRetrain() }
+            // Switching profile loads that profile's taps and retrains (see `switchProfile`).
+            if config.activeProfileID == oldValue.activeProfileID {
+                if config.modelChoice != oldValue.modelChoice || config.rejectFactor != oldValue.rejectFactor { refitActiveModel() }
+                if config.minTapStrength != oldValue.minTapStrength || config.autoTapStrength != oldValue.autoTapStrength { scheduleRetrain() }
+            }
             if config.checkForUpdates != oldValue.checkForUpdates, automaticUpdatesAllowed {
                 config.checkForUpdates ? updater.startAutomaticChecks() : updater.stopAutomaticChecks()
             }
@@ -127,9 +135,8 @@ final class AppModel {
         self.presentsUI = presentsUI
         privacyGuard = PrivacyGuard(presentsOverlay: presentsUI, micRecoveryURL: store.micRecoveryURL)
         config = store.loadConfig()
-        dataset = store.loadDataset()
-        nextSampleID = (dataset.samples.map(\.id).max() ?? 0) + 1
-        for s in dataset.samples { features[s.id] = Features.extract(g: s.g, a: s.a) }
+        dataset = Dataset()
+        loadDataset(profile: config.activeProfileID)
         if config.actions.isEmpty { config.actions = ZoneAction.defaults(for: dataset.grid) }
         if config.detector.refractory < 0.5 { config.detector.refractory = 0.5 }  // older default was 0.35 s
         detector.settings = config.detector
@@ -212,6 +219,7 @@ final class AppModel {
             "model": modelName, "accuracy": acc, "grid": grid.title,
             "samples": dataset.samples.count, "guardActive": privacyGuard.isActive,
             "calibrating": calibration != nil, "taps": recent.count,
+            "profile": config.activeProfile?.name ?? "", "profiles": config.profiles.count,
         ]
         info["recent"] = recent.prefix(10).map { ["id": $0.id, "outcome": "\($0.outcome)", "label": $0.label ?? "", "detail": $0.detail,
                                                   "peak": ($0.peakG * 10).rounded() / 10] as [String: Any] }
@@ -240,6 +248,7 @@ final class AppModel {
                 case "settings": self.showSettings()
                 case "calibrate": self.startCalibration()
                 case "endCalibration": self.endCalibration()
+                case "profile": if let p = self.config.profiles.first(where: { $0.name == label }) { self.switchProfile(to: p.id) }
                 default: Log.app.error("Unknown test command \(cmd, privacy: .public)")
                 }
             }
@@ -420,16 +429,16 @@ final class AppModel {
         guard saveTask != nil else { return }
         saveTask?.cancel()
         saveTask = nil
-        store.save(dataset)
+        store.save(dataset, profile: config.activeProfileID)
     }
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = dataset, store = store
+        let snapshot = dataset, store = store, profile = config.activeProfileID
         saveTask = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
-            store.save(snapshot)
+            store.save(snapshot, profile: profile)
         }
     }
 
@@ -518,6 +527,7 @@ final class AppModel {
         model = nil
         activeKind = nil
         scheduleSave()
+        noteProfileSummary()
     }
 
     func count(for label: String) -> Int { dataset.count(label) }
@@ -561,6 +571,7 @@ final class AppModel {
             report = nil
             model = nil
             activeKind = nil
+            noteProfileSummary()
             completion?()
             return
         }
@@ -579,6 +590,7 @@ final class AppModel {
                 self.model = model
                 self.activeKind = kind
                 self.isTraining = false
+                self.noteProfileSummary()
                 Log.app.notice("Trained \(kind.title, privacy: .public) on \(report.sampleCount) taps (\(grid.title, privacy: .public)), accuracy \(Int((report.accuracy(kind) ?? 0) * 100))%")
                 completion?()
             }
@@ -609,6 +621,108 @@ final class AppModel {
                 self.activeKind = kind
             }
         }
+    }
+
+    // MARK: Profiles
+
+    /// Loads one profile's recorded taps (without training on them).
+    private func loadDataset(profile id: String) {
+        dataset = store.loadDataset(profile: id)
+        features = [:]
+        for s in dataset.samples { features[s.id] = Features.extract(g: s.g, a: s.a) }
+        nextSampleID = (dataset.samples.map(\.id).max() ?? 0) + 1
+    }
+
+    /// Profiles can't change while calibrating: the taps being recorded belong to the profile that started it.
+    var canChangeProfile: Bool { calibration == nil }
+
+    /// Loads another profile: its taps, sensitivity and zone actions. Its recogniser is retrained in the background
+    /// (a second or two), so taps in the meantime are felt but not acted on.
+    func switchProfile(to id: String) {
+        guard canChangeProfile, id != config.activeProfileID, let target = config.profiles.first(where: { $0.id == id }) else { return }
+        flushSave()
+        retrainTask?.cancel()
+        discardTraining()
+        report = nil
+        model = nil
+        activeKind = nil
+        recent.removeAll()
+        loadDataset(profile: id)
+        var c = config
+        c.activeProfileID = id
+        c.profileSettings = target.settings
+        if c.actions.isEmpty { c.actions = ZoneAction.defaults(for: dataset.grid) }
+        config = c
+        Log.app.notice("Profile \(target.name, privacy: .public): \(self.dataset.samples.count) taps on \(self.dataset.grid.title, privacy: .public)")
+        if Set(dataset.samples.map(\.label)).count >= 2 { retrain() } else { noteProfileSummary() }
+    }
+
+    /// Adds a profile and switches to it. Its zone actions and sensitivity start as a copy of the current profile's.
+    /// `copyTaps` also copies the current calibration so it works at once; otherwise it starts empty, to be calibrated
+    /// on the new surface. The setup used so far becomes the first profile, "Default".
+    @discardableResult
+    func addProfile(name: String, symbol: String, copyTaps: Bool) -> Profile? {
+        guard canChangeProfile, Profile.problem(with: name, among: config.profiles) == nil else { return nil }
+        var c = config
+        if c.profiles.isEmpty {
+            var current = Profile(id: c.activeProfileID, name: Profile.defaultName, symbol: Profile.defaultSymbol, settings: c.profileSettings)
+            current.grid = dataset.grid
+            current.taps = dataset.zoneTapCount - softTapCount
+            current.accuracy = accuracy
+            c.profiles = [current]
+        }
+        var profile = Profile(name: name.trimmingCharacters(in: .whitespacesAndNewlines), symbol: symbol, settings: c.profileSettings)
+        flushSave()
+        let taps = copyTaps ? dataset : Dataset(grid: dataset.grid, samples: [])
+        store.save(taps, profile: profile.id)
+        profile.grid = taps.grid
+        profile.taps = copyTaps ? dataset.zoneTapCount - softTapCount : 0
+        profile.accuracy = copyTaps ? accuracy : nil
+        c.profiles.append(profile)
+        config = c
+        Log.app.notice("Added profile \(profile.name, privacy: .public) (\(copyTaps ? "copied taps" : "to calibrate", privacy: .public))")
+        switchProfile(to: profile.id)
+        return profile
+    }
+
+    func updateProfile(_ id: String, name: String, symbol: String) {
+        guard let i = config.profiles.firstIndex(where: { $0.id == id }),
+              Profile.problem(with: name, among: config.profiles, excluding: id) == nil else { return }
+        config.profiles[i].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.profiles[i].symbol = symbol
+    }
+
+    /// Removes a profile; its taps go to the Trash. Deleting the active one switches to the next first.
+    /// The last profile can't be deleted: there's always a setup to use.
+    func deleteProfile(_ id: String) {
+        guard canChangeProfile, config.profiles.count >= 2, let i = config.profiles.firstIndex(where: { $0.id == id }) else { return }
+        if id == config.activeProfileID {
+            let next = config.profiles[i == 0 ? 1 : i - 1]
+            switchProfile(to: next.id)
+        }
+        let name = config.profiles[i].name
+        config.profiles.removeAll { $0.id == id }
+        store.trashDataset(profile: id)
+        Log.app.notice("Deleted profile \(name, privacy: .public)")
+    }
+
+    /// Calibrates a profile on its surface (switching to it first).
+    func calibrateProfile(_ id: String) {
+        switchProfile(to: id)
+        guard config.activeProfileID == id else { return }
+        startCalibration()
+    }
+
+    /// Remembers how the active profile is calibrated, to describe it while another profile is in use.
+    private func noteProfileSummary() {
+        guard let i = config.activeProfileIndex else { return }
+        let taps = dataset.zoneTapCount - softTapCount
+        let acc = isTrained ? accuracy : nil
+        let p = config.profiles[i]
+        guard p.grid != dataset.grid || p.taps != taps || p.accuracy != acc else { return }
+        config.profiles[i].grid = dataset.grid
+        config.profiles[i].taps = taps
+        config.profiles[i].accuracy = acc
     }
 
     // MARK: Settings helpers

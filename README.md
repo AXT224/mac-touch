@@ -13,6 +13,7 @@ GitHub whether a newer version is out (you can turn that off).
 Made by [Yemcube (@yem.cube)](https://www.instagram.com/yem.cube).
 
 - [What a tap can do](#what-a-tap-can-do)
+- [Profiles: desk, lap, sofa](#profiles-desk-lap-sofa)
 - [Install](#install)
 - [Getting good taps](#getting-good-taps)
 - [Which Macs work](#which-macs-work)
@@ -40,6 +41,18 @@ The default 2×2 layout: top-left **Desktop Left**, top-right **Desktop Right**,
 LidTap ignores the bumps that aren't taps: typing, clicking, scrolling, moving the pointer, moving the
 lid, and knocks on the desk.
 
+## Profiles: desk, lap, sofa
+
+A tap feels different on a desk, on your lap and on a sofa. Profiles let each place have its own
+calibration, zone actions and sensitivity: say Desk switches desktops, and Sofa plays and pauses music.
+
+LidTap starts with no profiles. To add one, open Settings → Profiles and click **Add Profile…**. Name it,
+pick an icon, and either calibrate on the new surface (recommended, about two minutes) or start with a copy
+of your current calibration. What you set up before is kept as **Default**, and you can rename it.
+
+Once you have two or more, switch between them at the top of the LidTap menu, or press ⌘1 to ⌘9 while
+the menu is open. Privacy Guard, feedback, sounds and update settings are shared by all profiles.
+
 ## Install
 
 1. Download **LidTap-macOS.zip** from the [latest release](https://github.com/harsha20599/lidtap/releases/latest).
@@ -53,7 +66,7 @@ lid, and knocks on the desk.
    record 20 seconds of everyday bumps: typing, clicking, nudging the laptop. That's it.
 
 **Updating:** from 1.0.2 on, LidTap updates itself. About once a day it checks GitHub for a new release and
-asks before installing it; or choose **Check for Updates…** in its menu. It installs an update only if it's
+asks before installing it; or click **Check Now** in Settings → General. It installs an update only if it's
 signed by LidTap's developer, and keeps your calibration and settings. Turn off the daily check in Settings →
 General. On 1.0.1 or earlier, download the new version once and replace the app in Applications. Coming from
 1.0 or an unsigned build? Switch LidTap off and on again in the Accessibility list, once.
