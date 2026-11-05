@@ -42,18 +42,17 @@ lid, and knocks on the desk.
 ## Install
 
 1. Download **LidTap-macOS.zip** from the [latest release](https://github.com/harsha20599/lidtap/releases/latest).
-2. Unzip it and drag **LidTap.app** to Applications.
-3. The first time, **right-click LidTap → Open** (it isn't notarized yet), then confirm.
-   If macOS still refuses, open System Settings → Privacy & Security and click **Open Anyway**.
-4. A hand icon appears in the menu bar, and Settings opens.
-5. Allow **Accessibility** when asked (System Settings → Privacy & Security → Accessibility). Desktop
+2. Unzip it, drag **LidTap.app** to Applications and open it. It's signed and notarized by Apple, so it
+   opens like any other app.
+3. A hand icon appears in the menu bar, and Settings opens.
+4. Allow **Accessibility** when asked (System Settings → Privacy & Security → Accessibility). Desktop
    switching and music keys need it. **Input Monitoring** is optional: it lets LidTap tell typing from
    tapping more precisely.
-6. Click **Calibrate**. Tap the dot in each highlighted zone a few times (about two minutes), then let it
+5. Click **Calibrate**. Tap the dot in each highlighted zone a few times (about two minutes), then let it
    record 20 seconds of everyday bumps: typing, clicking, nudging the laptop. That's it.
 
-**Updating:** replace the app in Applications. Your calibration and settings are kept. After an update,
-switch LidTap off and on again in the Accessibility list.
+**Updating:** replace the app in Applications. Your calibration and settings are kept. Coming from 1.0 or
+an unsigned build? Switch LidTap off and on again in the Accessibility list, once.
 
 ## Getting good taps
 
