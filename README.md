@@ -10,7 +10,7 @@ trained on *your* taps works out which part of the screen you tapped. Everything
 no account, and your taps and settings never leave the machine. The only time LidTap goes online is to ask
 GitHub whether a newer version is out (you can turn that off).
 
-Made by [Yemcube (@yem.cube)](https://www.instagram.com/yem.cube).
+Made by AXT Studios.
 
 - [What a tap can do](#what-a-tap-can-do)
 - [Profiles: desk, lap, sofa](#profiles-desk-lap-sofa)
